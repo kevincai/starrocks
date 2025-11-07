@@ -20,7 +20,7 @@ RUN mkdir -p $GCC_WORK_DIR && \
     wget --no-check-certificate $GCC_DOWNLOAD_URL -O ../gcc.tar.gz && \
     tar -zxf ../gcc.tar.gz --strip-components=1 && \
     ./contrib/download_prerequisites && \
-    ./configure --disable-multilib --enable-languages=c,c++ --prefix=$GCC_INSTALL_HOME && \
+    ./configure --disable-multilib --enable-languages=c,c++,lto --prefix=$GCC_INSTALL_HOME && \
     make -j$(nproc) && \
     make install-strip
 
