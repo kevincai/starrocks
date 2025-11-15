@@ -372,6 +372,7 @@ echo "Finished patching $PROTOBUF_SOURCE"
 cd $TP_SOURCE_DIR/$GPERFTOOLS_SOURCE
 if [ ! -f $PATCHED_MARK ] && [ $GPERFTOOLS_SOURCE = "gperftools-gperftools-2.7" ]; then
     patch -p1 < $TP_PATCH_DIR/tcmalloc_hook.patch
+    patch -p1 < $TP_PATCH_DIR/gperftools_20251105.patch
     touch $PATCHED_MARK
 fi
 cd -
@@ -622,4 +623,17 @@ if [[ -d $TP_SOURCE_DIR/$CCTZ_SOURCE ]] ; then
     fi
     cd -
     echo "Finished patching $CCTZ_SOURCE"
+fi
+
+
+#patch libhdfs
+# libhdfs is build by -fhidden. we need access hidden symbol getJNIEnv
+if [[ -d $TP_SOURCE_DIR/$HADOOPSRC_SOURCE ]] ; then
+    cd $TP_SOURCE_DIR/$HADOOPSRC_SOURCE
+    if [ ! -f "$PATCHED_MARK" ] && [[ $HADOOPSRC_SOURCE == "hadoop-3.4.2-src" ]] ; then
+        patch -p1 < "$TP_PATCH_DIR/hadoop-3.4.2-src.patch"
+        touch "$PATCHED_MARK"
+    fi
+    cd -
+    echo "Finished patching $HADOOPSRC_SOURCE"
 fi

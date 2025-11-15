@@ -66,7 +66,6 @@ import com.starrocks.sql.ast.expression.ArithmeticExpr;
 import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.ast.expression.ExprToThriftVisitor;
 import com.starrocks.sql.ast.expression.ExprUtils;
-import com.starrocks.sql.ast.expression.ExprToThriftVisitor;
 import com.starrocks.sql.ast.expression.FunctionCallExpr;
 import com.starrocks.sql.ast.expression.IntLiteral;
 import com.starrocks.sql.ast.expression.NullLiteral;
@@ -89,8 +88,8 @@ import com.starrocks.thrift.TPlanNodeType;
 import com.starrocks.thrift.TScanRange;
 import com.starrocks.thrift.TScanRangeLocation;
 import com.starrocks.thrift.TScanRangeLocations;
+import com.starrocks.type.HLLType;
 import com.starrocks.type.PrimitiveType;
-import com.starrocks.type.Type;
 import com.starrocks.warehouse.cngroup.ComputeResource;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -433,7 +432,7 @@ public class FileScanNode extends LoadScanNode {
                             + destSlotDesc.getColumn().getName() + "=hll_hash(xxx) or " +
                             destSlotDesc.getColumn().getName() + "=hll_empty()");
                 }
-                expr.setType(Type.HLL);
+                expr.setType(HLLType.HLL);
             }
 
             checkBitmapCompatibility(destSlotDesc, expr);
@@ -585,9 +584,8 @@ public class FileScanNode extends LoadScanNode {
             long rangeBytes = 0;
             // The rest of the file belongs to one range
             boolean isEndOfFile = false;
-            if (smallestLocations.second + leftBytes > bytesPerInstance &&
-                    ((formatType == TFileFormatType.FORMAT_CSV_PLAIN || formatType == TFileFormatType.FORMAT_PARQUET)
-                            && fileStatus.isSplitable)) {
+            if (smallestLocations.second + leftBytes > bytesPerInstance && isFileFormatSupportSplit(formatType)
+                            && fileStatus.isSplitable) {
                 rangeBytes = bytesPerInstance - smallestLocations.second;
             } else {
                 rangeBytes = leftBytes;
@@ -616,6 +614,17 @@ public class FileScanNode extends LoadScanNode {
             if (brokerScanRange(locations).isSetRanges()) {
                 locationsList.add(locations);
             }
+        }
+    }
+    
+    private boolean isFileFormatSupportSplit(TFileFormatType format) {
+        switch (format) {
+            case FORMAT_CSV_PLAIN:
+            case FORMAT_PARQUET:
+            case FORMAT_ORC:
+                return true;
+            default:
+                return false;
         }
     }
 

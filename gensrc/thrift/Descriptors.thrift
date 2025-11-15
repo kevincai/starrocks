@@ -68,7 +68,7 @@ struct TTupleDescriptor {
 
 enum THdfsFileFormat {
   TEXT = 0,
-  LZO_TEXT = 1,
+  LZO_TEXT = 1, // Deprecated
   RC_FILE = 2,
   // THdfsFileFormat is only used to represent FileFormat, not SerializeFormat,
   // so there is no need to split it into RC_BINARY and RC_TEXT.
@@ -245,9 +245,15 @@ struct TColumn {
     21: optional Types.TTypeDesc type_desc         
 }
 
+struct TOlapTableTablet {
+    1: optional i64 id // tablet id
+    2: optional Types.TTabletRange range
+}
+
 struct TOlapTableIndexTablets {
     1: required i64 index_id
-    2: required list<i64> tablets
+    2: required list<i64> tablet_ids
+    3: optional list<TOlapTableTablet> tablets
 }
 
 // its a closed-open range

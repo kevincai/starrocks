@@ -211,7 +211,7 @@ public class Config extends ConfigBase {
     public static String internal_log_roll_interval = "DAY";
     @ConfField
     public static String internal_log_delete_age = "7d";
-    @ConfField
+    @ConfField(mutable = true)
     public static boolean internal_log_json_format = false;
 
     /**
@@ -1212,6 +1212,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int max_running_txn_num_per_db = 1000;
 
+    @ConfField(mutable = true, comment = "A comma-separated list of transaction latency metric groups to report. " +
+            "Load job source types (see TransactionState.LoadJobSourceType) are categorized into logical groups " +
+            "for monitoring. When a group is enabled, its name is added as a 'type' label to transaction metrics. " +
+            "Common groups include 'stream_load', 'routine_load', 'broker_load', 'insert', and 'compaction' " +
+            "(for shared-data clusters). e.g. \"stream_load,routine_load\"")
+    public static String txn_latency_metric_report_groups = "";
+
     /**
      * The load task executor pool size. This pool size limits the max running load tasks.
      * Currently, it only limits the load task of broker load, pending and loading phases.
@@ -1278,6 +1285,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long catalog_trash_expire_second = 86400L; // 1day
+
+    /**
+     * The retention time for partition dropped by insert overwrite/mv rewrite etc.
+     */
+    @ConfField(mutable = true)
+    public static long partition_recycle_retention_period_secs = 30 * 60L; // 30mins
 
     /**
      * Parallel load fragment instance num in single host
@@ -1833,9 +1846,19 @@ public class Config extends ConfigBase {
     /**
      * After checked tablet_checker_partition_batch_num partitions, db lock will be released,
      * so that other threads can get the lock.
+     * TODO: deprecate this configuration after ColocateTableBalancer.java module is optimized by lock holding time.
      */
     @ConfField(mutable = true)
     public static int tablet_checker_partition_batch_num = 500;
+
+    /**
+     * Default 1000ms provides a good balance between lock fairness and overhead.
+     * Allows processing hundreds of partitions while preventing lock monopolization.
+     */
+    @ConfField(mutable = true, comment = "The maximum lock hold time per cycle for tablet checker before releasing " +
+            "and reacquiring the table lock in milliseconds, default is 1000 (ms). " +
+            "Values less than 100 will be treated as 100")
+    public static int tablet_checker_lock_time_per_cycle_ms = 1000;
 
     @Deprecated
     @ConfField(mutable = true)
@@ -2389,6 +2412,12 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static long histogram_max_sample_row_count = 10000000;
+
+    /**
+     * collect distinct count in histogram buckets
+     */
+    @ConfField(mutable = true)
+    public static String histogram_collect_bucket_ndv_mode = "none";
 
     @ConfField(mutable = true, comment = "Use table sample instead of row-level bernoulli sample to collect statistics")
     public static boolean enable_use_table_sample_collect_statistics = true;
@@ -3817,7 +3846,7 @@ public class Config extends ConfigBase {
     public static String jwt_principal_field = "sub";
 
     /**
-     * Specifies a list of string. One of that must match the value of the JWT’s issuer (iss) field in order to consider
+     * Specifies a list of string. One of that must match the value of the JWT's issuer (iss) field in order to consider
      * this JWT valid. The iss field in the JWT identifies the principal that issued the JWT.
      */
     @ConfField(mutable = false)
@@ -3831,7 +3860,7 @@ public class Config extends ConfigBase {
     public static String[] jwt_required_audience = {};
 
     /**
-     * The authorization URL. The URL a user’s browser will be redirected to in order to begin the OAuth2 authorization process
+     * The authorization URL. The URL a user's browser will be redirected to in order to begin the OAuth2 authorization process
      */
     @ConfField(mutable = false)
     public static String oauth2_auth_server_url = "";
@@ -3883,14 +3912,14 @@ public class Config extends ConfigBase {
     public static String oauth2_principal_field = "sub";
 
     /**
-     * Specifies a string that must match the value of the JWT’s issuer (iss) field in order to consider this JWT valid.
+     * Specifies a string that must match the value of the JWT's issuer (iss) field in order to consider this JWT valid.
      * The iss field in the JWT identifies the principal that issued the JWT.
      */
     @ConfField(mutable = false)
     public static String oauth2_required_issuer = "";
 
     /**
-     * Specifies a string that must match the value of the JWT’s Audience (aud) field in order to consider this JWT valid.
+     * Specifies a string that must match the value of the JWT's Audience (aud) field in order to consider this JWT valid.
      * The aud field in the JWT identifies the recipients that the JWT is intended for.
      */
     @ConfField(mutable = false)
@@ -3942,10 +3971,10 @@ public class Config extends ConfigBase {
     public static long default_statistics_output_row_count = 1L;
 
     /**
-     * Whether enable dynamic tablet.
+     * Whether enable range distribution.
      */
-    @ConfField(mutable = true, comment = "Whether enable dynamic tablet.")
-    public static boolean enable_dynamic_tablet = false;
+    @ConfField(mutable = true, comment = "Whether enable range distribution.")
+    public static boolean enable_range_distribution = false;
 
     /**
      * The default scheduler interval for dynamic tablet jobs.

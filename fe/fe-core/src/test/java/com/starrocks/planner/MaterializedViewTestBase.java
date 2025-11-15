@@ -89,6 +89,8 @@ public class MaterializedViewTestBase extends PlanTestBase {
 
         starRocksAssert.getCtx().getSessionVariable().setEnableLocalShuffleAgg(false);
         connectContext.getSessionVariable().setEnableLocalShuffleAgg(false);
+        starRocksAssert.getCtx().getSessionVariable().setEnableRewriteSimpleAggToMetaScan(false);
+        connectContext.getSessionVariable().setEnableRewriteSimpleAggToMetaScan(false);
     }
 
     @BeforeEach
@@ -350,7 +352,7 @@ public class MaterializedViewTestBase extends PlanTestBase {
         if (task == null) {
             task = TaskBuilder.buildMvTask(mv, dbName);
             TaskBuilder.updateTaskInfo(task, mv);
-            taskManager.createTask(task, false);
+            taskManager.createTask(task);
         }
         taskManager.executeTaskSync(task);
     }

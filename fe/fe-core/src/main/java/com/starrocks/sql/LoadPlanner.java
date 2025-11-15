@@ -67,7 +67,7 @@ import com.starrocks.thrift.TPartitionType;
 import com.starrocks.thrift.TResultSinkType;
 import com.starrocks.thrift.TRoutineLoadTask;
 import com.starrocks.thrift.TUniqueId;
-import com.starrocks.type.Type;
+import com.starrocks.type.IntegerType;
 import com.starrocks.warehouse.cngroup.ComputeResource;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -219,6 +219,7 @@ public class LoadPlanner {
         this.startTime = System.currentTimeMillis();
         this.sessionVariables = sessionVariables;
         this.computeResource = streamLoadInfo.getComputeResource();
+        this.mergeConditionStr = streamLoadInfo.getMergeConditionStr();
     }
 
     public LoadPlanner(long loadJobId, TUniqueId loadId, long txnId, long dbId, String dbName, OlapTable destTable,
@@ -411,7 +412,7 @@ public class LoadPlanner {
         if (isPrimaryKey) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(new Column(Load.LOAD_OP_COLUMN, Type.TINYINT));
+            slotDesc.setColumn(new Column(Load.LOAD_OP_COLUMN, IntegerType.TINYINT));
             slotDesc.setIsNullable(false);
         }
         descTable.computeMemLayout();

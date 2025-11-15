@@ -30,6 +30,7 @@ import com.starrocks.sql.optimizer.operator.scalar.ScalarOperator;
 import com.starrocks.sql.optimizer.rewrite.ScalarOperatorRewriter;
 import com.starrocks.sql.optimizer.transformer.SqlToScalarOperatorTranslator;
 import com.starrocks.sql.plan.ScalarOperatorToExpr;
+import com.starrocks.type.InvalidType;
 import com.starrocks.type.Type;
 
 import java.lang.reflect.Method;
@@ -161,7 +162,8 @@ public class ExprUtils {
         Preconditions.checkNotNull(l);
         ArrayList<C> result = new ArrayList<C>();
         for (C element : l) {
-            result.add((C) element.clone(sMap));
+            C cloned = (C) (sMap == null ? element.clone() : ExprSubstitutionVisitor.rewrite(element, sMap));
+            result.add(cloned);
         }
         return result;
     }
@@ -241,7 +243,7 @@ public class ExprUtils {
 
     public static Function getBuiltinFunction(String name, Type[] argTypes, Function.CompareMode mode) {
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, argTypes, Type.INVALID, false);
+        Function searchDesc = new Function(fnName, argTypes, InvalidType.INVALID, false);
         return GlobalStateMgr.getCurrentState().getFunction(searchDesc, mode);
     }
 
@@ -250,7 +252,7 @@ public class ExprUtils {
             return getBuiltinFunction(name, argTypes, mode);
         }
         FunctionName fnName = new FunctionName(name);
-        Function searchDesc = new Function(fnName, argTypes, argNames, Type.INVALID, false);
+        Function searchDesc = new Function(fnName, argTypes, argNames, InvalidType.INVALID, false);
         return GlobalStateMgr.getCurrentState().getFunction(searchDesc, mode);
     }
 

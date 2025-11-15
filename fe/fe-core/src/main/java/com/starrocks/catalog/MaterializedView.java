@@ -89,6 +89,7 @@ import com.starrocks.sql.plan.ExecPlan;
 import com.starrocks.statistic.StatsConstants;
 import com.starrocks.thrift.TTableDescriptor;
 import com.starrocks.thrift.TTableType;
+import com.starrocks.type.InvalidType;
 import com.starrocks.type.Type;
 import com.starrocks.warehouse.Warehouse;
 import org.apache.commons.collections.CollectionUtils;
@@ -982,7 +983,7 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
         if (partitionExpr == null) {
             return Optional.empty();
         }
-        if (partitionExpr.getType() == Type.INVALID) {
+        if (partitionExpr.getType() == InvalidType.INVALID) {
             Optional<Column> partitionColOpt = getRangePartitionFirstColumn();
             if (partitionColOpt.isEmpty()) {
                 return Optional.empty();
@@ -1256,7 +1257,12 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
         TaskManager taskManager = GlobalStateMgr.getCurrentState().getTaskManager();
         Task refreshTask = taskManager.getTask(TaskBuilder.getMvTaskName(getId()));
         if (refreshTask != null) {
-            taskManager.dropTasks(Lists.newArrayList(refreshTask.getId()), replay);
+            List<Long> taskIds = Lists.newArrayList(refreshTask.getId());
+            if (replay) {
+                taskManager.replayDropTasks(taskIds);
+            } else {
+                taskManager.dropTasks(taskIds);
+            }
         }
     }
 
@@ -1272,6 +1278,7 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
      */
     @Override
     public void onCreate(Database database) throws DdlException {
+        super.onCreate(database);
         onReload(false, isActive(), true);
     }
 
@@ -1472,7 +1479,7 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
                     LOG.warn("tableName :{} is invalid. set materialized view:{} to invalid",
                             baseTableInfo.getTableName(), id);
                     res = InactiveReason.ofInactive(
-                            MaterializedViewExceptions.inactiveReasonForBaseTableActive(baseTableInfo.getTableName()));
+                            MaterializedViewExceptions.inactiveReasonForBaseTableInActive(baseTableInfo.getTableName()));
                 }
             }
 
@@ -2574,12 +2581,14 @@ public class MaterializedView extends OlapTable implements GsonPreProcessable, G
                 }
             }
             if (this.defineQueryParseNode == null) {
-                try {
-                    connectContext.setDatabase(db.getOriginName());
-                    this.defineQueryParseNode = MvUtils.getQueryAst(viewDefineSql, connectContext);
-                } catch (Exception e) {
-                    // ignore
-                    LOG.warn("parse view define sql failed:", e);
+                if (!Strings.isNullOrEmpty(viewDefineSql)) {
+                    try {
+                        connectContext.setDatabase(db.getOriginName());
+                        this.defineQueryParseNode = MvUtils.getQueryAst(viewDefineSql, connectContext);
+                    } catch (Exception e) {
+                        // ignore
+                        LOG.warn("parse view define sql failed:", e);
+                    }
                 }
             }
         }

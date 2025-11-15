@@ -81,6 +81,7 @@ import com.starrocks.sql.ast.OriginStatement;
 import com.starrocks.sql.ast.expression.CastExpr;
 import com.starrocks.sql.ast.expression.Expr;
 import com.starrocks.sql.ast.expression.ExprSubstitutionMap;
+import com.starrocks.sql.ast.expression.ExprSubstitutionVisitor;
 import com.starrocks.sql.ast.expression.ExprUtils;
 import com.starrocks.sql.ast.expression.SlotRef;
 import com.starrocks.sql.ast.expression.TableName;
@@ -100,9 +101,8 @@ import com.starrocks.thrift.TStorageType;
 import com.starrocks.thrift.TTabletSchema;
 import com.starrocks.thrift.TTabletType;
 import com.starrocks.thrift.TTaskType;
-import com.starrocks.type.PrimitiveType;
+import com.starrocks.type.BooleanType;
 import com.starrocks.type.Type;
-import com.starrocks.type.TypeFactory;
 import io.opentelemetry.api.trace.StatusCode;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -452,12 +452,11 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         for (SlotRef slot : slots) {
             SlotDescriptor slotDesc = slotDescByName.get(slot.getColumnName());
             Preconditions.checkNotNull(slotDesc);
-            smap.getLhs().add(slot);
             SlotRef slotRef = new SlotRef(slotDesc);
             slotRef.setColumnName(slot.getColumnName());
-            smap.getRhs().add(slotRef);
+            smap.put(slot, slotRef);
         }
-        Expr newExpr = defineExpr.clone(smap);
+        Expr newExpr = ExprSubstitutionVisitor.rewrite(defineExpr, smap);
         newExpr = newExpr.accept(visitor, null);
         newExpr = ExprUtils.analyzeAndCastFold(newExpr);
         Type newType = newExpr.getType();
@@ -545,7 +544,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         Expr whereExpr = null;
         if (whereClause != null) {
-            Type type = TypeFactory.createType(PrimitiveType.BOOLEAN);
+            Type type = BooleanType.BOOLEAN;
             whereExpr = analyzeExpr(visitor, type, CreateMaterializedViewStmt.WHERE_PREDICATE_COLUMN_NAME,
                     whereClause, slotDescByName);
             List<SlotRef> slots = Lists.newArrayList();
