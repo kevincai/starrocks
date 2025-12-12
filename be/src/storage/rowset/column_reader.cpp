@@ -449,8 +449,8 @@ Status ColumnReader::load_ordinal_index(const IndexReadOptions& opts) {
         _meta_mem_usage.fetch_sub(_ordinal_index_meta->SpaceUsedLong(), std::memory_order_relaxed);
         _meta_mem_usage.fetch_add(_ordinal_index->mem_usage(), std::memory_order_relaxed);
         _ordinal_index_meta.reset();
-        _segment->update_cache_size();
     }
+    _segment->update_cache_size();
     return Status::OK();
 }
 
