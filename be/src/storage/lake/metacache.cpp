@@ -231,17 +231,17 @@ std::shared_ptr<Segment> Metacache::cache_segment_if_absent(std::string_view key
     return _lookup_segment_no_lock(key);
 }
 
-intptr_t Metacache::cache_segment_if_present(std::string_view key, size_t mem_cost, intptr_t segment_addr_hint) {
+bool Metacache::cache_segment_if_present(std::string_view key, size_t mem_cost, intptr_t segment_addr_hint) {
     std::unique_lock lock(_mutex);
     auto seg = _lookup_segment_no_lock(key);
     if (seg == nullptr) {
-        return 0;
+        return false;
     }
     if (segment_addr_hint != 0 && reinterpret_cast<intptr_t>(seg.get()) != segment_addr_hint) {
-        return 0;
+        return false;
     }
     _cache_segment_no_lock(key, mem_cost, std::move(seg));
-    return segment_addr_hint;
+    return true;
 }
 
 void Metacache::cache_delvec(std::string_view key, std::shared_ptr<const DelVector> delvec) {

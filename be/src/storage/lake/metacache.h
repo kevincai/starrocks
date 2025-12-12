@@ -68,8 +68,8 @@ public:
 
     void cache_segment(std::string_view key, std::shared_ptr<Segment> segment);
 
-    // return the same `segment_addr_hint` if the key exists in cache, 0 otherwise
-    intptr_t cache_segment_if_present(std::string_view key, size_t mem_cost, intptr_t segment_addr_hint);
+    // return the same `segment_addr_hint` hits and put into cache again, otherwise false
+    bool cache_segment_if_present(std::string_view key, size_t mem_cost, intptr_t segment_addr_hint);
 
     // cache the segment if the given key not exists in the cache, returns the segment shared_ptr stored in the cache.
     std::shared_ptr<Segment> cache_segment_if_absent(std::string_view key, std::shared_ptr<Segment> segment);

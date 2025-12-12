@@ -38,6 +38,7 @@
 #include "storage/lake/meta_file.h"
 #include "storage/lake/metacache.h"
 #include "storage/lake/options.h"
+#include "storage/lake/segment_cache_updater.h"
 #include "storage/lake/tablet.h"
 #include "storage/lake/tablet_metadata.h"
 #include "storage/lake/txn_log.h"
@@ -71,12 +72,12 @@ TabletManager::TabletManager(std::shared_ptr<LocationProvider> location_provider
         : _location_provider(std::move(location_provider)),
           _metacache(std::make_unique<Metacache>(cache_capacity)),
           _compaction_scheduler(std::make_unique<CompactionScheduler>(this)),
-          _update_mgr(update_mgr) {
+          _update_mgr(update_mgr), _segment_cache_updater(std::make_unique<SegmentCacheUpdater>(_metacache.get())) {
     _update_mgr->set_tablet_mgr(this);
 }
 
 TabletManager::TabletManager(std::shared_ptr<LocationProvider> location_provider, int64_t cache_capacity)
-        : _location_provider(std::move(location_provider)), _metacache(std::make_unique<Metacache>(cache_capacity)) {}
+        : _location_provider(std::move(location_provider)), _metacache(std::make_unique<Metacache>(cache_capacity)) ,  _segment_cache_updater(std::make_unique<SegmentCacheUpdater>(_metacache.get())){}
 
 TabletManager::~TabletManager() = default;
 
@@ -155,8 +156,8 @@ Status TabletManager::drop_local_cache(const std::string& path) {
 }
 
 // current lru cache does not support updating value size, so use refill to update.
-void TabletManager::update_segment_cache_size(std::string_view key, size_t mem_cost, intptr_t segment_addr_hint) {
-    _metacache->cache_segment_if_present(key, mem_cost, segment_addr_hint);
+void TabletManager::update_segment_cache_size(std::string_view key, intptr_t segment_addr_hint) {
+    _segment_cache_updater->update(std::string(key), segment_addr_hint);
 }
 
 void TabletManager::prune_metacache() {
@@ -1211,6 +1212,7 @@ void TabletManager::get_tablets_basic_info(int64_t table_id, int64_t partition_i
 
 void TabletManager::stop() {
     _compaction_scheduler->stop();
+    _segment_cache_updater->stop();
 }
 
 StatusOr<TabletAndRowsets> TabletManager::capture_tablet_and_rowsets(int64_t tablet_id, int64_t from_version,

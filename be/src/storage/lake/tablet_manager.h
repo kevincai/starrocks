@@ -49,6 +49,7 @@ using TxnLogIter = MetadataIterator<TxnLogPtr>;
 using TabletAndRowsets = std::tuple<std::shared_ptr<Tablet>, std::vector<BaseRowsetSharedPtr>>;
 
 class CompactionScheduler;
+class SegmentCacheUpdater;
 class Metacache;
 class VersionedTablet;
 
@@ -219,7 +220,7 @@ public:
     // If segment_addr_hint is provided and it's non-zero, the cache size will be only updated when the
     // instance address matches the address provided by the segment_addr_hint. This is used to prevent
     // updating the cache size where the cached object is not the one as expected.
-    void update_segment_cache_size(std::string_view key, size_t mem_cost, intptr_t segment_addr_hint = 0);
+    void update_segment_cache_size(std::string_view key, intptr_t segment_addr_hint = 0);
 
     StatusOr<SegmentPtr> load_segment(const FileInfo& segment_info, int segment_id, size_t* footer_size_hint,
                                       const LakeIOOptions& lake_io_opts, bool fill_meta_cache,
@@ -271,6 +272,7 @@ private:
 
     std::shared_mutex _meta_lock;
     std::unordered_map<int64_t, int64_t> _tablet_in_writing_size;
+    std::unique_ptr<SegmentCacheUpdater> _segment_cache_updater;
 
     bthreads::singleflight::Group<std::string, StatusOr<TabletSchemaPtr>> _schema_group;
     bthreads::singleflight::Group<std::string, StatusOr<CombinedTxnLogPtr>> _combined_txn_log_group;
