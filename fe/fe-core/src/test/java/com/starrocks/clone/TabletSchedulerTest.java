@@ -50,6 +50,8 @@ import com.starrocks.server.GlobalStateMgr;
 import com.starrocks.server.NodeMgr;
 import com.starrocks.system.Backend;
 import com.starrocks.system.SystemInfoService;
+import com.starrocks.task.AgentBatchTask;
+import com.starrocks.task.AgentTaskExecutor;
 import com.starrocks.task.CloneTask;
 import com.starrocks.task.CreateReplicaTask;
 import com.starrocks.thrift.TBackend;
@@ -765,6 +767,167 @@ public class TabletSchedulerTest {
                 ((java.util.concurrent.atomic.AtomicBoolean) Deencapsulation.getField(scheduler, "forceCleanSchedQ"))
                         .get(),
                 "forceCleanSchedQ must reset to false");
+    }
+
+    @Test
+    public void testDeleteErrorStateReplica() throws Exception {
+        long beId1 = 10001L;
+        long beId2 = 10002L;
+        long dbId = 20001L;
+        long tblId = 20002L;
+        long partitionId = 20003L;
+        long physicalPartitionId = 20003L;
+        long indexId = 20004L;
+        long tabletId = 20005L;
+
+        // Use a low rate so the second deletion is throttled within this test.
+        // Must be set before constructing TabletScheduler since the RateLimiter reads it then.
+        double savedRate = Config.tablet_sched_delete_error_state_replica_permits_per_second;
+        Config.tablet_sched_delete_error_state_replica_permits_per_second = 0.1;
+
+        // Register backends so deleteBackendDropped() won't fire
+        Backend be1 = new Backend(beId1, "192.168.0.1", 9030);
+        be1.setAlive(true);
+        systemInfoService.addBackend(be1);
+        Backend be2 = new Backend(beId2, "192.168.0.2", 9030);
+        be2.setAlive(true);
+        systemInfoService.addBackend(be2);
+
+        Replica normalReplica = new Replica(30001L, beId1, 0, Replica.ReplicaState.NORMAL);
+        Replica errorReplica = new Replica(30002L, beId2, 0, Replica.ReplicaState.NORMAL);
+        errorReplica.setIsErrorState(true);
+
+        LocalTablet tablet = new LocalTablet(tabletId, Lists.newArrayList(normalReplica, errorReplica));
+        MaterializedIndex index = new MaterializedIndex(indexId);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tblId, physicalPartitionId, indexId, TStorageMedium.HDD);
+        index.addTablet(tablet, tabletMeta);
+        PhysicalPartition physicalPartition = new PhysicalPartition(physicalPartitionId, partitionId, index);
+
+        Database db = new Database(dbId, "db");
+        OlapTable table = new OlapTable(tblId, "table", null, null, null, null);
+
+        new Expectations() {
+            {
+                globalStateMgr.getLocalMetastore().getDbIncludeRecycleBin(dbId);
+                minTimes = 0;
+                result = db;
+                globalStateMgr.getLocalMetastore().getTableIncludeRecycleBin(db, tblId);
+                minTimes = 0;
+                result = table;
+                globalStateMgr.getLocalMetastore().getPhysicalPartitionIncludeRecycleBin(table, physicalPartitionId);
+                minTimes = 0;
+                result = physicalPartition;
+            }
+        };
+
+        new MockUp<AgentTaskExecutor>() {
+            @Mock
+            public void submit(AgentBatchTask task) {
+                // no-op for test
+            }
+        };
+
+        TabletSchedCtx ctx = new TabletSchedCtx(TabletSchedCtx.Type.REPAIR, dbId, tblId, partitionId, indexId, tabletId,
+                System.currentTimeMillis());
+        ctx.setTablet(tablet);
+
+        TabletScheduler scheduler = new TabletScheduler(new TabletSchedulerStat());
+
+        // FORCE_REDUNDANT calls handleRedundantReplica(ctx, true) which skips watermark
+        SchedException ex = Assertions.assertThrows(SchedException.class,
+                () -> scheduler.handleTabletByTypeAndStatus(
+                        LocalTablet.TabletHealthStatus.FORCE_REDUNDANT, ctx, new AgentBatchTask()));
+        Assertions.assertEquals(SchedException.Status.FINISHED, ex.getStatus());
+        Assertions.assertTrue(ex.getMessage().contains("redundant replica is deleted"));
+
+        // Verify throttling: a second error-state tablet deletion should be skipped
+        long tabletId2 = 20006L;
+        Replica normalReplica2 = new Replica(30003L, beId1, 0, Replica.ReplicaState.NORMAL);
+        Replica errorReplica2 = new Replica(30004L, beId2, 0, Replica.ReplicaState.NORMAL);
+        errorReplica2.setIsErrorState(true);
+
+        LocalTablet tablet2 = new LocalTablet(tabletId2, Lists.newArrayList(normalReplica2, errorReplica2));
+        index.addTablet(tablet2, new TabletMeta(dbId, tblId, physicalPartitionId, indexId, TStorageMedium.HDD));
+
+        TabletSchedCtx ctx2 = new TabletSchedCtx(TabletSchedCtx.Type.REPAIR, dbId, tblId, partitionId, indexId, tabletId2,
+                System.currentTimeMillis());
+        ctx2.setTablet(tablet2);
+
+        // Throttled: error-state deletion is skipped, no other deletion criteria match,
+        // so handleRedundantReplica throws UNRECOVERABLE instead of FINISHED
+        try {
+            SchedException ex2 = Assertions.assertThrows(SchedException.class,
+                    () -> scheduler.handleTabletByTypeAndStatus(
+                            LocalTablet.TabletHealthStatus.FORCE_REDUNDANT, ctx2, new AgentBatchTask()));
+            Assertions.assertEquals(SchedException.Status.UNRECOVERABLE, ex2.getStatus());
+            Assertions.assertTrue(ex2.getMessage().contains("unable to delete any redundant replicas"));
+        } finally {
+            Config.tablet_sched_delete_error_state_replica_permits_per_second = savedRate;
+        }
+    }
+
+    @Test
+    public void testDeleteErrorStateReplicaPreservedWhenNoHealthyReplicaLeft() throws Exception {
+        long beId1 = 11001L;
+        long dbId = 21001L;
+        long tblId = 21002L;
+        long partitionId = 21003L;
+        long physicalPartitionId = 21003L;
+        long indexId = 21004L;
+        long tabletId = 21005L;
+
+        Backend be1 = new Backend(beId1, "192.168.1.1", 9030);
+        be1.setAlive(true);
+        systemInfoService.addBackend(be1);
+
+        // Single error-state replica; deleting it would wipe the tablet.
+        Replica errorReplica = new Replica(31001L, beId1, 0, Replica.ReplicaState.NORMAL);
+        errorReplica.setIsErrorState(true);
+
+        LocalTablet tablet = new LocalTablet(tabletId, Lists.newArrayList(errorReplica));
+        MaterializedIndex index = new MaterializedIndex(indexId);
+        TabletMeta tabletMeta = new TabletMeta(dbId, tblId, physicalPartitionId, indexId, TStorageMedium.HDD);
+        index.addTablet(tablet, tabletMeta);
+        PhysicalPartition physicalPartition = new PhysicalPartition(physicalPartitionId, partitionId, index);
+
+        Database db = new Database(dbId, "db2");
+        OlapTable table = new OlapTable(tblId, "table2", null, null, null, null);
+
+        new Expectations() {
+            {
+                globalStateMgr.getLocalMetastore().getDbIncludeRecycleBin(dbId);
+                minTimes = 0;
+                result = db;
+                globalStateMgr.getLocalMetastore().getTableIncludeRecycleBin(db, tblId);
+                minTimes = 0;
+                result = table;
+                globalStateMgr.getLocalMetastore().getPhysicalPartitionIncludeRecycleBin(table, physicalPartitionId);
+                minTimes = 0;
+                result = physicalPartition;
+            }
+        };
+
+        new MockUp<AgentTaskExecutor>() {
+            @Mock
+            public void submit(AgentBatchTask task) {
+                // no-op for test
+            }
+        };
+
+        TabletSchedCtx ctx = new TabletSchedCtx(TabletSchedCtx.Type.REPAIR, dbId, tblId, partitionId, indexId, tabletId,
+                System.currentTimeMillis());
+        ctx.setTablet(tablet);
+
+        TabletScheduler scheduler = new TabletScheduler(new TabletSchedulerStat());
+
+        // Guard must keep the error-state replica: no healthy alternative remains, so no deleter
+        // matches and handleRedundantReplica falls through to UNRECOVERABLE.
+        SchedException ex = Assertions.assertThrows(SchedException.class,
+                () -> scheduler.handleTabletByTypeAndStatus(
+                        LocalTablet.TabletHealthStatus.FORCE_REDUNDANT, ctx, new AgentBatchTask()));
+        Assertions.assertEquals(SchedException.Status.UNRECOVERABLE, ex.getStatus());
+        Assertions.assertTrue(ex.getMessage().contains("unable to delete any redundant replicas"));
+        Assertions.assertTrue(errorReplica.isErrorState(), "error-state replica should still be present");
     }
 
     @Test
