@@ -1,3 +1,8 @@
+---
+displayed_sidebar: docs
+sidebar_label: "Hadoop Wildfly Native SSL Library Issue"
+sidebar_position: 99
+---
 # FAQ: Hadoop 3.4.3 Wildfly Native SSL Library Issue in StarRocks
 
 ## Background
@@ -104,7 +109,9 @@ sudo apt install libssl-dev
 | **Azure Data Lake** (ADL) | `adl.ssl.channel.mode` | `Default_JSSE` |
 | **Azure Blob Storage** (ABFS) | `fs.azure.ssl.channel.mode` | `Default_JSSE` |
 
-> **Note:** The Azure Data Lake Store SDK also supports `AdlStoreOptions.setSSLChannelMode()` programmatically, but for StarRocks the `core-site.xml` approach is the standard method.
+:::note
+The Azure Data Lake Store SDK also supports `AdlStoreOptions.setSSLChannelMode()` programmatically, but for StarRocks the `core-site.xml` approach is the standard method.
+:::
 
 ---
 
