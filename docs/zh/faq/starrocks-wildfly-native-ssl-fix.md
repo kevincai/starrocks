@@ -1,10 +1,13 @@
+---
+displayed_sidebar: docs
+sidebar_label: "Hadoop Wildfly Native SSL 库问题"
+sidebar_position: 99
+---
 # FAQ：StarRocks 中 Hadoop 3.4.3 Wildfly Native SSL 库问题
 
 ## 背景
 
-StarRocks 已将内置的 Hadoop 依赖从 3.4.2 升级到 3.4.3（[PR #69503](https://github.com/StarRocks/starrocks/pull/69503)）。Hadoop 3.4.3 引入了 [HADOOP-19719](https://issues.apache.org/jira/browse/HADOOP-19719)，将 Wildfly OpenSSL 绑定从 `2.1.4.Final` 升级到 `2.2.5.Final`，以支持 OpenSSL 3.0。
-
-然而，新版本的本地库（`libwfssl.so`）是基于 **GLIBC 2.34+** 构建的，这会在较旧的 Linux 发行版上引发兼容性问题。
+StarRocks 已将内置的 Hadoop 依赖从 3.4.2 升级到 3.4.3（[PR #69503](https://github.com/StarRocks/starrocks/pull/69503)）。Hadoop 3.4.3 引入了 [HADOOP-19719](https://issues.apache.org/jira/browse/HADOOP-19719)，将 Wildfly OpenSSL 绑定从 `2.1.4.Final` 升级到 `2.2.5.Final`，以支持 OpenSSL 3.0。然而，新版本的本地库（`libwfssl.so`）是基于 **GLIBC 2.34+** 构建的，这会在较旧的 Linux 发行版上引发兼容性问题。
 
 **受影响的 StarRocks 版本：** 4.1.0+、4.0.7+、3.5.14+
 
@@ -18,6 +21,13 @@ A error occurred: errorCode=2001 errorMessage:Channel inactive error!
 ```
 
 在 [GitHub Issue #70478](https://github.com/StarRocks/starrocks/issues/70478) 中，当通过 `FILES()` 函数查询 Azure Data Lake 上的 Parquet 文件时也会触发该问题。
+
+```
+*** SIGSEGV (@0x0) received by PID (TID 0x...) ***
+    @     0x7b9b67093453 SSL_CTX_new_ex
+    @     0x7b9b6a09d95a Java_org_wildfly_openssl_SSLImpl_makeSSLContext0
+    @     0x7b9a68544be1 (unknown)
+```
 
 根因是 Wildfly JNI 调用 `Java_org_wildfly_openssl_SSLImpl_makeSSLContext0` 时进入 OpenSSL 本地代码，由于打包的 `libwfssl.so` 与系统 OpenSSL 在 ABI/运行时不兼容，从而导致崩溃。
 
@@ -59,8 +69,29 @@ Hadoop 3.4.3 为支持 OpenSSL 3.0，将 Wildfly OpenSSL 升级到 `2.2.5.Final`
 
 在所有 CN/BE 节点的 `core-site.xml` 中添加配置：
 
-**配置文件路径：**
+```xml
+<configuration>
+    <!-- Disable Wildfly native SSL for AWS S3 (S3A connector) -->
+    <property>
+        <name>fs.s3a.ssl.channel.mode</name>
+        <value>default_jsse</value>
+    </property>
 
+    <!-- Disable Wildfly native SSL for Azure Data Lake (ADL connector) -->
+    <property>
+        <name>adl.ssl.channel.mode</name>
+        <value>Default_JSSE</value>
+    </property>
+
+    <!-- Disable Wildfly native SSL for Azure Blob Storage (ABFS connector) -->
+    <property>
+        <name>fs.azure.ssl.channel.mode</name>
+        <value>Default_JSSE</value>
+    </property>
+</configuration>
+```
+
+**配置文件路径：**
 - StarRocks BE/CN：`$STARROCKS_HOME/conf/core-site.xml`
 - Broker 进程：`$BROKER_HOME/conf/core-site.xml`
 
@@ -86,7 +117,9 @@ sudo apt install libssl-dev
 | **Azure Data Lake（ADL）** | `adl.ssl.channel.mode`      | `Default_JSSE` |
 | **Azure Blob（ABFS）**     | `fs.azure.ssl.channel.mode` | `Default_JSSE` |
 
-> **说明：** Azure Data Lake SDK 也支持通过 `AdlStoreOptions.setSSLChannelMode()` 进行编程配置，但在 StarRocks 中推荐使用 `core-site.xml` 方式。
+:::note
+Azure Data Lake SDK 也支持通过 `AdlStoreOptions.setSSLChannelMode()` 进行编程配置，但在 StarRocks 中推荐使用 `core-site.xml` 方式。
+:::
 
 ---
 
@@ -157,6 +190,25 @@ RHEL 8 默认使用 **GLIBC 2.28**，明显低于 Wildfly 本地库要求的 2.3
 ## 快速修复（推荐）
 
 在所有 CN/BE 节点的 `$STARROCKS_HOME/conf/core-site.xml` 中添加配置，并重启服务。
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="configuration.xsl"?>
+<configuration>
+    <property>
+        <name>fs.s3a.ssl.channel.mode</name>
+        <value>default_jsse</value>
+    </property>
+    <property>
+        <name>adl.ssl.channel.mode</name>
+        <value>Default_JSSE</value>
+    </property>
+    <property>
+        <name>fs.azure.ssl.channel.mode</name>
+        <value>Default_JSSE</value>
+    </property>
+</configuration>
+```
 
 ---
 
