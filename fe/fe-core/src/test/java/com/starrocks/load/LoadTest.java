@@ -18,6 +18,7 @@ package com.starrocks.load;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.starrocks.analysis.ArithmeticExpr;
+import com.starrocks.analysis.CastExpr;
 import com.starrocks.analysis.CompoundPredicate;
 import com.starrocks.analysis.DescriptorTable;
 import com.starrocks.analysis.Expr;
@@ -25,6 +26,7 @@ import com.starrocks.analysis.FunctionCallExpr;
 import com.starrocks.analysis.IntLiteral;
 import com.starrocks.analysis.SlotDescriptor;
 import com.starrocks.analysis.SlotRef;
+import com.starrocks.analysis.StringLiteral;
 import com.starrocks.analysis.TupleDescriptor;
 import com.starrocks.catalog.AggregateType;
 import com.starrocks.catalog.Column;
@@ -33,11 +35,14 @@ import com.starrocks.catalog.KeysType;
 import com.starrocks.catalog.OlapTable;
 import com.starrocks.catalog.RandomDistributionInfo;
 import com.starrocks.catalog.SinglePartitionInfo;
+import com.starrocks.catalog.Table;
 import com.starrocks.catalog.Type;
 import com.starrocks.common.AnalysisException;
 import com.starrocks.common.ExceptionChecker;
 import com.starrocks.common.StarRocksException;
+import com.starrocks.persist.ColumnIdExpr;
 import com.starrocks.qe.SqlModeHelper;
+import com.starrocks.sql.ast.ColumnDef;
 import com.starrocks.sql.ast.ImportColumnDesc;
 import com.starrocks.sql.ast.ImportColumnsStmt;
 import com.starrocks.thrift.TBrokerScanRangeParams;
@@ -421,5 +426,164 @@ public class LoadTest {
         Assertions.assertNotNull(c2Expr);
         Assertions.assertEquals(
                 "now[(6); args: INT; result: DATETIME; args nullable: false; result nullable: false]", c2Expr.explain());
+    }
+
+    @Test
+    public void testGeneratedColumnUsesMappingExprBeforeSourceSlot() throws StarRocksException {
+        Column c1 = new Column("c1", Type.INT, true, null, true, null, "");
+        Column c2 = new Column("c2", Type.INT, true, null, true, null, "");
+        Column c3 = new Column("c3", Type.INT, true, null, true, null, "");
+        List<Column> fullSchema = Lists.newArrayList(c1, c2, c3);
+        c3.setGeneratedColumnExpr(ColumnIdExpr.create(fullSchema,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(null, "c2"),
+                        new IntLiteral(1, Type.INT))));
+        Table localTable = new Table(1L, "table0", Table.TableType.OLAP, fullSchema);
+
+        DescriptorTable localDescTable = new DescriptorTable();
+        TupleDescriptor localSrcTupleDesc = localDescTable.createTupleDescriptor();
+        localSrcTupleDesc.setTable(localTable);
+        Map<String, Expr> localExprsByName = Maps.newHashMap();
+        Map<String, SlotDescriptor> localSlotDescByName = Maps.newHashMap();
+        List<ImportColumnDesc> localColumnExprs = Lists.newArrayList(
+                new ImportColumnDesc("c1"),
+                new ImportColumnDesc("c2"),
+                new ImportColumnDesc("c2", new ArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(null, "c2"),
+                        new IntLiteral(2, Type.INT))));
+
+        Load.initColumns(localTable, localColumnExprs, null, localExprsByName, localDescTable, localSrcTupleDesc,
+                localSlotDescByName, new TBrokerScanRangeParams(), true, true, Lists.newArrayList());
+
+        Expr generatedExpr = localExprsByName.get("c3");
+        Assertions.assertNotNull(generatedExpr);
+        Assertions.assertTrue(generatedExpr.explain().contains("2"));
+    }
+
+    @Test
+    public void testGeneratedColumnUsesSourceSlotWhenMappingExprMissing() throws StarRocksException {
+        Column c1 = new Column("c1", Type.INT, true, null, true, null, "");
+        Column c2 = new Column("c2", Type.INT, true, null, true, null, "");
+        Column c3 = new Column("c3", Type.INT, true, null, true, null, "");
+        List<Column> fullSchema = Lists.newArrayList(c1, c2, c3);
+        c3.setGeneratedColumnExpr(ColumnIdExpr.create(fullSchema, new SlotRef(null, "c2")));
+        Table localTable = new Table(1L, "table0", Table.TableType.OLAP, fullSchema);
+
+        DescriptorTable localDescTable = new DescriptorTable();
+        TupleDescriptor localSrcTupleDesc = localDescTable.createTupleDescriptor();
+        localSrcTupleDesc.setTable(localTable);
+        Map<String, Expr> localExprsByName = Maps.newHashMap();
+        Map<String, SlotDescriptor> localSlotDescByName = Maps.newHashMap();
+        List<ImportColumnDesc> localColumnExprs = Lists.newArrayList(
+                new ImportColumnDesc("c1"),
+                new ImportColumnDesc("c2"));
+
+        Load.initColumns(localTable, localColumnExprs, null, localExprsByName, localDescTable, localSrcTupleDesc,
+                localSlotDescByName, new TBrokerScanRangeParams(), true, true, Lists.newArrayList());
+
+        Expr generatedExpr = localExprsByName.get("c3");
+        Assertions.assertNotNull(generatedExpr);
+        Assertions.assertInstanceOf(CastExpr.class, generatedExpr);
+        Assertions.assertInstanceOf(SlotRef.class, generatedExpr.getChild(0));
+        Assertions.assertEquals("c2", ((SlotRef) generatedExpr.getChild(0)).getColumnName());
+    }
+
+    @Test
+    public void testGeneratedColumnMissingDependencyUsesDefaultNull() throws StarRocksException {
+        Column c1 = new Column("c1", Type.INT, true, null, true, null, "");
+        Column c2 = new Column("c2", Type.INT, true, null, true, null, "");
+        Column c3 = new Column("c3", Type.INT, true, null, true, null, "");
+        List<Column> fullSchema = Lists.newArrayList(c1, c2, c3);
+        c3.setGeneratedColumnExpr(ColumnIdExpr.create(fullSchema,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(null, "c2"),
+                        new IntLiteral(1, Type.INT))));
+        Table localTable = new Table(1L, "table0", Table.TableType.OLAP, fullSchema);
+
+        DescriptorTable localDescTable = new DescriptorTable();
+        TupleDescriptor localSrcTupleDesc = localDescTable.createTupleDescriptor();
+        localSrcTupleDesc.setTable(localTable);
+        Map<String, Expr> localExprsByName = Maps.newHashMap();
+        Map<String, SlotDescriptor> localSlotDescByName = Maps.newHashMap();
+        List<ImportColumnDesc> localColumnExprs = Lists.newArrayList(new ImportColumnDesc("c1"));
+
+        Load.initColumns(localTable, localColumnExprs, null, localExprsByName, localDescTable, localSrcTupleDesc,
+                localSlotDescByName, new TBrokerScanRangeParams(), true, true, Lists.newArrayList());
+
+        Expr generatedExpr = localExprsByName.get("c3");
+        Assertions.assertNotNull(generatedExpr);
+        Assertions.assertTrue(generatedExpr.explain().contains("NULL"));
+    }
+
+    @Test
+    public void testGeneratedColumnMissingDependencyUsesConstDefault() throws StarRocksException {
+        Column c1 = new Column("c1", Type.INT, true, null, true, null, "");
+        Column c2 = new Column("c2", Type.INT, true, null, false,
+                new ColumnDef.DefaultValueDef(true, new StringLiteral("7")), "");
+        Column c3 = new Column("c3", Type.INT, true, null, true, null, "");
+        List<Column> fullSchema = Lists.newArrayList(c1, c2, c3);
+        c3.setGeneratedColumnExpr(ColumnIdExpr.create(fullSchema, new SlotRef(null, "c2")));
+        Table localTable = new Table(1L, "table0", Table.TableType.OLAP, fullSchema);
+
+        DescriptorTable localDescTable = new DescriptorTable();
+        TupleDescriptor localSrcTupleDesc = localDescTable.createTupleDescriptor();
+        localSrcTupleDesc.setTable(localTable);
+        Map<String, Expr> localExprsByName = Maps.newHashMap();
+        Map<String, SlotDescriptor> localSlotDescByName = Maps.newHashMap();
+        List<ImportColumnDesc> localColumnExprs = Lists.newArrayList(new ImportColumnDesc("c1"));
+
+        Load.initColumns(localTable, localColumnExprs, null, localExprsByName, localDescTable, localSrcTupleDesc,
+                localSlotDescByName, new TBrokerScanRangeParams(), true, true, Lists.newArrayList());
+
+        Expr generatedExpr = localExprsByName.get("c3");
+        Assertions.assertNotNull(generatedExpr);
+        Assertions.assertTrue(generatedExpr.explain().contains("7"));
+    }
+
+    @Test
+    public void testGeneratedColumnMissingDependencyUsesVaryDefault() throws StarRocksException {
+        Column c1 = new Column("c1", Type.INT, true, null, true, null, "");
+        Column c2 = new Column("c2", Type.VARCHAR, true, null, false,
+                new ColumnDef.DefaultValueDef(true, new FunctionCallExpr("uuid", Lists.newArrayList())), "");
+        Column c3 = new Column("c3", Type.VARCHAR, true, null, true, null, "");
+        List<Column> fullSchema = Lists.newArrayList(c1, c2, c3);
+        c3.setGeneratedColumnExpr(ColumnIdExpr.create(fullSchema, new SlotRef(null, "c2")));
+        Table localTable = new Table(1L, "table0", Table.TableType.OLAP, fullSchema);
+
+        DescriptorTable localDescTable = new DescriptorTable();
+        TupleDescriptor localSrcTupleDesc = localDescTable.createTupleDescriptor();
+        localSrcTupleDesc.setTable(localTable);
+        Map<String, Expr> localExprsByName = Maps.newHashMap();
+        Map<String, SlotDescriptor> localSlotDescByName = Maps.newHashMap();
+        List<ImportColumnDesc> localColumnExprs = Lists.newArrayList(new ImportColumnDesc("c1"));
+
+        Load.initColumns(localTable, localColumnExprs, null, localExprsByName, localDescTable, localSrcTupleDesc,
+                localSlotDescByName, new TBrokerScanRangeParams(), true, true, Lists.newArrayList());
+
+        Expr generatedExpr = localExprsByName.get("c3");
+        Assertions.assertNotNull(generatedExpr);
+        Assertions.assertTrue(generatedExpr.explain().contains("uuid"));
+    }
+
+    @Test
+    public void testGeneratedColumnMissingDependencyFailsWhenNoDefault() {
+        Column c1 = new Column("c1", Type.INT, true, null, true, null, "");
+        Column c2 = new Column("c2", Type.INT, true, null, false, null, "");
+        Column c3 = new Column("c3", Type.INT, true, null, true, null, "");
+        List<Column> fullSchema = Lists.newArrayList(c1, c2, c3);
+        c3.setGeneratedColumnExpr(ColumnIdExpr.create(fullSchema,
+                new ArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(null, "c2"),
+                        new IntLiteral(1, Type.INT))));
+        Table localTable = new Table(1L, "table0", Table.TableType.OLAP, fullSchema);
+
+        DescriptorTable localDescTable = new DescriptorTable();
+        TupleDescriptor localSrcTupleDesc = localDescTable.createTupleDescriptor();
+        localSrcTupleDesc.setTable(localTable);
+        Map<String, Expr> localExprsByName = Maps.newHashMap();
+        Map<String, SlotDescriptor> localSlotDescByName = Maps.newHashMap();
+        List<ImportColumnDesc> localColumnExprs = Lists.newArrayList(new ImportColumnDesc("c1"));
+
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
+                "missing dependency column for generated column c3",
+                () -> Load.initColumns(localTable, localColumnExprs, null, localExprsByName, localDescTable,
+                        localSrcTupleDesc, localSlotDescByName, new TBrokerScanRangeParams(), true, true,
+                        Lists.newArrayList(), false, true));
     }
 }
