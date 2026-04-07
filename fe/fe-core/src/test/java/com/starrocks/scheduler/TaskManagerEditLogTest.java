@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.TimeUnit;
 
 public class TaskManagerEditLogTest {
@@ -120,5 +121,76 @@ public class TaskManagerEditLogTest {
         Assertions.assertEquals(Constants.TaskState.ACTIVE, followerAlteredTask.getState());
         Assertions.assertNotNull(followerAlteredTask.getSchedule());
         Assertions.assertEquals(120, followerAlteredTask.getSchedule().getPeriod());
+    }
+
+    @Test
+    public void testSuspendTaskNormalCase() throws Exception {
+        // 1. Create a periodical task
+        String taskName = "suspend_task_test";
+        Task task = new Task(taskName);
+        task.setType(Constants.TaskType.PERIODICAL);
+        task.setDefinition("SELECT 1");
+        task.setDbName("test_db");
+        task.setCatalogName("test_catalog");
+        task.setState(Constants.TaskState.ACTIVE);
+
+        TaskSchedule schedule = new TaskSchedule();
+        schedule.setStartTime(System.currentTimeMillis() / 1000);
+        schedule.setPeriod(3600);
+        schedule.setTimeUnit(TimeUnit.SECONDS);
+        task.setSchedule(schedule);
+
+        masterTaskManager.createTask(task, false);
+        Task createdTask = masterTaskManager.getTask(taskName);
+        Assertions.assertNotNull(createdTask);
+        Assertions.assertEquals(Constants.TaskState.ACTIVE, createdTask.getState());
+        ScheduledFuture<?> scheduledFuture = masterTaskManager.getPeriodFutureMap().get(createdTask.getId());
+        Assertions.assertNotNull(scheduledFuture);
+
+        // 2. Suspend the task
+        masterTaskManager.suspendTask(createdTask);
+
+        // 3. Verify the scheduler future was cancelled
+        Task suspendedTask = masterTaskManager.getTask(taskName);
+        Assertions.assertNotNull(suspendedTask);
+        Assertions.assertEquals(Constants.TaskState.PAUSE, suspendedTask.getState());
+        Assertions.assertTrue(scheduledFuture.isCancelled(),
+                "Suspending a periodical task should cancel the registered scheduler future");
+    }
+
+    @Test
+    public void testResumeTaskNormalCase() throws Exception {
+        // 1. Create and suspend a periodical task
+        String taskName = "resume_task_test";
+        Task task = new Task(taskName);
+        task.setType(Constants.TaskType.PERIODICAL);
+        task.setDefinition("SELECT 1");
+        task.setDbName("test_db");
+        task.setCatalogName("test_catalog");
+        task.setState(Constants.TaskState.ACTIVE);
+
+        TaskSchedule schedule = new TaskSchedule();
+        schedule.setStartTime(System.currentTimeMillis() / 1000);
+        schedule.setPeriod(3600);
+        schedule.setTimeUnit(TimeUnit.SECONDS);
+        task.setSchedule(schedule);
+
+        masterTaskManager.createTask(task, false);
+        Task createdTask = masterTaskManager.getTask(taskName);
+        Assertions.assertNotNull(createdTask);
+
+        masterTaskManager.suspendTask(createdTask);
+        Task suspendedTask = masterTaskManager.getTask(taskName);
+        Assertions.assertEquals(Constants.TaskState.PAUSE, suspendedTask.getState());
+
+        // 2. Resume the task
+        masterTaskManager.resumeTask(suspendedTask);
+
+        // 3. Verify state and scheduler re-registration
+        Task resumedTask = masterTaskManager.getTask(taskName);
+        Assertions.assertNotNull(resumedTask);
+        Assertions.assertEquals(Constants.TaskState.ACTIVE, resumedTask.getState());
+        Assertions.assertNotNull(masterTaskManager.getPeriodFutureMap().get(resumedTask.getId()),
+                "Resuming a periodical task should re-register the scheduler future");
     }
 }
