@@ -202,12 +202,15 @@ public class CompactionSchedulerTest {
             {
                 systemInfoService.getBackendOrComputeNode(1L);
                 result = node;
+            }
+        };
 
-                globalStateMgr.getWarehouseMgr();
-                result = warehouseManager;
-
-                LakeAggregator.chooseAggregatorNode(WarehouseManager.DEFAULT_RESOURCE);
-                result = aggregatorNode;
+        final ComputeNode theAggregatorNode = aggregatorNode;
+        new MockUp<LakeAggregator>() {
+            @Mock
+            public ComputeNode chooseAggregatorNode(ComputeResource computeResource,
+                                                    java.util.Collection<ComputeNode> candidateNodes) {
+                return theAggregatorNode;
             }
         };
 
@@ -405,9 +408,22 @@ public class CompactionSchedulerTest {
                 result = node1;
                 systemInfoService.getBackendOrComputeNode(1002L);
                 result = node2;
+            }
+        };
 
-                globalStateMgr.getWarehouseMgr();
-                result = warehouseManager;
+        final ComputeNode theAggregatorNode = aggregatorNode;
+        new MockUp<LakeAggregator>() {
+            @Mock
+            public ComputeNode chooseAggregatorNode(ComputeResource computeResource,
+                                                    java.util.Collection<ComputeNode> candidateNodes) {
+                return theAggregatorNode;
+            }
+        };
+
+        new Expectations() {
+            {
+                BrpcProxy.getLakeService("192.168.0.3", 9050);
+                result = lakeService;
             }
         };
 
@@ -560,12 +576,14 @@ public class CompactionSchedulerTest {
                 result = node1;
                 systemInfoService.getBackendOrComputeNode(1002L);
                 result = node2;
+            }
+        };
 
-                globalStateMgr.getWarehouseMgr();
-                result = warehouseManager;
-
-                lakeAggregator.chooseAggregatorNode(WarehouseManager.DEFAULT_RESOURCE);
-                result = null;
+        new MockUp<LakeAggregator>() {
+            @Mock
+            public ComputeNode chooseAggregatorNode(ComputeResource computeResource,
+                                                    java.util.Collection<ComputeNode> candidateNodes) {
+                return null;
             }
         };
 

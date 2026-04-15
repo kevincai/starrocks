@@ -1071,7 +1071,8 @@ public class StarMgrMetaSyncerTest {
         // test aggregator
         new MockUp<LakeAggregator>() {
             @Mock
-            public static ComputeNode chooseAggregatorNode(ComputeResource computeResource) {
+            public static ComputeNode chooseAggregatorNode(ComputeResource computeResource,
+                                                           java.util.Collection<ComputeNode> candidateNodes) {
                 return null;
             }
         };
@@ -1578,6 +1579,10 @@ public class StarMgrMetaSyncerTest {
 
         new Expectations(starOSAgent) {
             {
+                starOSAgent.getAllNodeIdsByShards((List<Long>) any, anyLong);
+                result = null;
+                minTimes = 0;
+
                 starOSAgent.getPrimaryComputeNodeIdByShard(anyLong, anyLong);
                 result = computeNodeId;
 
@@ -1628,6 +1633,10 @@ public class StarMgrMetaSyncerTest {
 
         new Expectations(starOSAgent) {
             {
+                starOSAgent.getAllNodeIdsByShards((List<Long>) any, anyLong);
+                result = null;
+                minTimes = 0;
+
                 starOSAgent.getPrimaryComputeNodeIdByShard(anyLong, anyLong);
                 result = computeNodeId;
 
