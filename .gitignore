@@ -101,6 +101,7 @@ java-extensions/*/bin/
 CLAUDE.md
 .clangd
 .cursor/
+.codex/
 
 !build-mac/CMakeLists.txt
 # build-mac generated files
