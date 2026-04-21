@@ -730,6 +730,8 @@ struct TLakeScanNode {
   46: optional i32 next_uniq_id
 
   56: optional bool enable_global_late_materialization
+
+  57: optional list<Exprs.TExpr> partition_conjuncts
 }
 
 struct TEqJoinCondition {
